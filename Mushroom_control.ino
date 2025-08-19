@@ -76,7 +76,7 @@ void drawDot(int x, int y, bool on) {
 }
 
 // ★ 변경: u8g2 버전 화면 렌더링
-void drawScreen(float t, float h) {
+void drawScreen(float t, float h, int remainSec) {
   if (!screenOn) return;
   u8g2.clearBuffer();
   u8g2.setDrawColor(1);
@@ -126,17 +126,33 @@ void drawScreen(float t, float h) {
   drawDot(45, 102, cycOn);
   drawDot(115,102, motionDetected());
 
+  // ★ 추가: 남은 시간(mm:ss) 표시
+  int mm = remainSec / 60;
+  int ss = remainSec % 60;
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%02d:%02d", mm, ss);
   u8g2.setCursor(0, 125);
-  u8g2.print("           Jini");
+  u8g2.print("OLED OFF ");
+  u8g2.print(buf);
+  //u8g2.setCursor(0, 125);
+  //u8g2.print("           Jini");
 
   u8g2.sendBuffer();
 }
-
+// ★ 추가: 남은 초 계산 유틸
+int secondsUntilOff(unsigned long now) {
+  if (!screenOn) return 0;
+  unsigned long elapsed = now - lastMotionMs;
+  if (elapsed >= TIMEOUT_MS) return 0;
+  unsigned long remain_ms = TIMEOUT_MS - elapsed;
+  return (int)((remain_ms + 999UL) / 1000UL); // 반올림
+}
 // ★ 변경: 전원 온/오프 제어
 void turnDisplayOn(float t, float h) {
   u8g2.setPowerSave(0);   // ON
   screenOn = true;
-  drawScreen(t, h);
+  int rem = secondsUntilOff(millis());
+  drawScreen(t, h, rem);
 }
 void turnDisplayOff() {
   u8g2.clearBuffer(); 
@@ -231,7 +247,9 @@ void setup() {
   lastAnyActiveMs = millis();   // 부팅 시점을 마지막 활동 시각으로 초기화
   float t = dht.readTemperature();
   float h = dht.readHumidity();
-  turnDisplayOn(t, h);
+   // ★ 변경: 남은 초 넘김
+  int rem = secondsUntilOff(millis());
+  drawScreen(t, h, rem);
 }
 
 void loop() {
@@ -256,11 +274,13 @@ void loop() {
 
     float t = dht.readTemperature();
     float h = dht.readHumidity();
-
+    // ★ 변경: 남은 초 계산 후 표시
+    int rem = secondsUntilOff(now);
+    
     autoControl(t, h);          // 메인 릴레이 결정
     updateVentilation(now);     // 환기 릴레이 결정
     applyOutputs();             // 모든 릴레이 적용
-    drawScreen(t, h);           // 화면 표시
+    drawScreen(t, h, rem);      // 화면 표시
     sendStatus(t, h);           // 상태 출력(JSON)
   }
 
