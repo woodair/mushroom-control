@@ -21,10 +21,10 @@ const bool LOGIC_ACTIVE_HIGH = true;
 DHT dht(DHTPIN, DHTTYPE);
 
 // 릴레이 출력 (LOW=ON 가정)
-#define RELAY_FAN   D7
+#define RELAY_COOL  D7
 #define RELAY_HEAT  D8
-#define RELAY_FOG   D4
-#define RELAY_VENT  D0   // 환기 릴레이(GPIO16). 부트 영향 적어 권장이다.
+#define RELAY_FOG   D3
+#define RELAY_CYC   D4   // 환기 릴레이(GPIO16). 부트 영향 적어 권장이다.
 #define RELAY_ON    LOW
 #define RELAY_OFF   HIGH
 
@@ -36,8 +36,8 @@ const float T_HEAT_OFF = 21.0;
 const float H_FOG_ON   = 85.0;
 const float H_FOG_OFF  = 95.0;
 
-// 화면 절전 타이머
-const unsigned long TIMEOUT_MS = 3UL * 60UL * 1000UL;
+// 화면 절전 타이머(5분)
+const unsigned long TIMEOUT_MS = 5UL * 60UL * 1000UL;
 unsigned long lastMotionMs = 0;
 bool screenOn = true;
 
@@ -45,14 +45,14 @@ bool screenOn = true;
 unsigned long lastTick = 0;
 const unsigned long LOOP_MS = 1000;
 
-bool fanOn=false, heatOn=false, fogOn=false, ventOn=false;
+bool coolOn=false, heatOn=false, fogOn=false, cycOn=false;
 
 // 환기 정책
-const unsigned long VENT_IDLE_MS = 10UL * 60UL * 1000UL; // 10분
-const unsigned long VENT_RUN_MS  = 2UL  * 60UL * 1000UL; // 2분
+const unsigned long CYC_IDLE_MS = 10UL * 60UL * 1000UL; // 10분
+const unsigned long CYC_RUN_MS  = 5UL  * 60UL * 1000UL; // 5분
 unsigned long lastAnyActiveMs = 0;  // 마지막으로 메인 릴레이가 하나라도 ON이었던 시각
-unsigned long ventStartMs = 0;      // 강제 환기 시작 시각
-bool ventForced = false;            // 강제 환기 중 여부
+unsigned long cycStartMs = 0;      // 강제 환기 시작 시각
+bool cycForced = false;            // 강제 환기 중 여부
 
 // 유틸
 bool motionDetected() {
@@ -63,10 +63,10 @@ void setRelay(int pin, bool on) {
   digitalWrite(pin, on?RELAY_ON:RELAY_OFF); 
 }
 void applyOutputs() {
-  setRelay(RELAY_FAN,  fanOn);
+  setRelay(RELAY_COOL, coolOn);
   setRelay(RELAY_HEAT, heatOn);
   setRelay(RELAY_FOG,  fogOn);
-  setRelay(RELAY_VENT, ventOn);
+  setRelay(RELAY_CYC, cycOn);
 }
 
 // ★ 변경: u8g2 버전의 점 그리기
@@ -84,30 +84,50 @@ void drawScreen(float t, float h) {
 
   // 헤더
   //u8g2.setFont(u8g2_font_6x12_tf);
+  //u8g2.setFont(u8g2_font_10x20_tf);
   u8g2.setFont(u8g2_font_unifont_t_korean2);
   u8g2.setCursor(0, 14);
-  u8g2.print("버섯재배  PIR:");
-  u8g2.print(motionDetected()? "ON":"OFF");
+  //u8g2.print("Mushroom  PIR:");
+  u8g2.print("실험실버섯재배기");
+  //u8g2.print(motionDetected()? "ON":"OFF");
 
   // 온습도
-  u8g2.setCursor(0, 28);
-  u8g2.print("T: ");
+  u8g2.setCursor(0, 40);
+  //u8g2.print("T: ");
+  u8g2.print("  ");
   if (isnan(t)) u8g2.print("--.-");
   else          u8g2.print(t,1);
-  u8g2.print("°C  H: ");
-  if (isnan(h)) u8g2.print("--");
-  else          u8g2.print((int)h);
+  //u8g2.print("°C  H: ");
+  u8g2.print("°C  ");
+  if (isnan(h)) u8g2.print("--.-");
+  else          u8g2.print(h,1);
+  //else          u8g2.print((int)h);
   u8g2.print("%");
 
   // 라벨
-  u8g2.setCursor(0, 48);
-  u8g2.print("Fan   Fog   Heat  Vent");
+  u8g2.setCursor(0, 65);
+  u8g2.print("Cool    Fog");
 
   // 상태 점(128x128 기준 위치)
-  drawDot(16,  72, fanOn);
-  drawDot(48,  72, fogOn);
-  drawDot(80,  72, heatOn);
-  drawDot(112, 72, ventOn);
+  drawDot(45,  62, coolOn);
+  drawDot(115, 62, fogOn);
+
+  u8g2.setCursor(0, 85);
+  u8g2.print("Heat    Vent");
+
+  // 상태 점(128x128 기준 위치)
+  drawDot(45, 82, heatOn);
+  drawDot(115,82, cycOn);
+
+  u8g2.setCursor(0, 105);
+  u8g2.print("Cyc     PIR");
+
+  // 상태 점(128x128 기준 위치)
+  drawDot(45, 102, cycOn);
+  drawDot(115,102, motionDetected());
+
+  u8g2.setCursor(0, 125);
+  u8g2.print("           Jini");
 
   u8g2.sendBuffer();
 }
@@ -127,15 +147,15 @@ void turnDisplayOff() {
 
 void autoControl(float t, float h) {
   if (!isnan(t)) {
-    if (t >= T_COOL_ON) fanOn = true;
-    else if (t <= T_COOL_OFF) fanOn = false;
+    if (t >= T_COOL_ON) coolOn = true;
+    else if (t <= T_COOL_OFF) coolOn = false;
 
     if (t <= T_HEAT_ON) heatOn = true;
     else if (t >= T_HEAT_OFF) heatOn = false;
 
-    if (fanOn && heatOn) {
+    if (coolOn && heatOn) {
       if (t >= (T_COOL_ON + T_HEAT_OFF)/2.0) heatOn = false;
-      else fanOn = false;
+      else coolOn = false;
     }
   }
   if (!isnan(h)) {
@@ -146,33 +166,33 @@ void autoControl(float t, float h) {
 
 // 환기 로직
 void updateVentilation(unsigned long now) {
-  bool anyMain = fanOn || heatOn || fogOn;
+  bool anyMain = coolOn || heatOn || fogOn;
 
   if (anyMain) {
-    ventOn = true;                // 메인 동작 중엔 항상 환기 켜기
-    ventForced = false;           // 강제 환기 상태 해제
+    cycOn = true;                // 메인 동작 중엔 항상 환기 켜기
+    cycForced = false;           // 강제 환기 상태 해제
     lastAnyActiveMs = now;        // 마지막 활동 시각 갱신
     return;
   }
 
   // 메인 모두 OFF인 구간
-  if (ventForced) {
+  if (cycForced) {
     // 강제 환기 진행 중
-    if (now - ventStartMs >= VENT_RUN_MS) {
-      ventForced = false;
-      ventOn = false;
+    if (now - cycStartMs >= CYC_RUN_MS) {
+      cycForced = false;
+      cycOn = false;
       lastAnyActiveMs = now;      // 강제 환기 종료 시각을 마지막 활동으로 간주
     } else {
-      ventOn = true;              // 강제 환기 유지
+      cycOn = true;              // 강제 환기 유지
     }
   } else {
     // 대기 시간 경과 시 강제 환기 시작
-    if (now - lastAnyActiveMs >= VENT_IDLE_MS) {
-      ventForced = true;
-      ventStartMs = now;
-      ventOn = true;
+    if (now - lastAnyActiveMs >= CYC_IDLE_MS) {
+      cycForced = true;
+      cycStartMs = now;
+      cycOn = true;
     } else {
-      ventOn = false;
+      cycOn = false;
     }
   }
 }
@@ -181,10 +201,10 @@ void sendStatus(float t, float h) {
   StaticJsonDocument<160> doc;
   if (!isnan(t)) doc["t"]=t;
   if (!isnan(h)) doc["h"]=h;
-  doc["fan"]=fanOn?1:0;
+  doc["fan"]=coolOn?1:0;
   doc["heat"]=heatOn?1:0;
   doc["fog"]=fogOn?1:0;
-  doc["vent"]=ventOn?1:0;   // 환기 상태 포함
+  doc["cyc"]=cycOn?1:0;   // 환기 상태 포함
   serializeJson(doc, Serial);
   Serial.print('\n');
 }
@@ -193,10 +213,10 @@ void setup() {
   Serial.begin(115200);
   pinMode(PIR_PIN, INPUT);
 
-  pinMode(RELAY_FAN, OUTPUT);
+  pinMode(RELAY_COOL, OUTPUT);
   pinMode(RELAY_HEAT, OUTPUT);
   pinMode(RELAY_FOG, OUTPUT);
-  pinMode(RELAY_VENT, OUTPUT);
+  pinMode(RELAY_CYC, OUTPUT);
   applyOutputs();
 
   dht.begin();
