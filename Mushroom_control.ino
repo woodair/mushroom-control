@@ -38,22 +38,23 @@ void drawScreen(float t,float h,int remainSec){
   u8g2.firstPage();
   do{
     u8g2.setDrawColor(1);
-    u8g2.setFont(u8g2_font_6x12_tf);
+    u8g2.setFont(u8g2_font_9x15_tf);
 
-    u8g2.setCursor(0,12);  u8g2.print(F("Mushroom Incubator"));
+    u8g2.setCursor(0,12);  u8g2.print(F("Mushroom Env."));
     u8g2.setCursor(0,36);
+    u8g2.print(F(" "));
     if(isnan(t)) u8g2.print(F("--.-")); else u8g2.print(t,1);
     u8g2.print(F("C  "));
     if(isnan(h)) u8g2.print(F("--.-")); else u8g2.print(h,1);
     u8g2.print(F("%"));
 
-    u8g2.setCursor(0,56);  u8g2.print(F("Cool        Fog"));
+    u8g2.setCursor(0,56);  u8g2.print(F("Cool    Fog"));
     drawDot(45,54,coolOn); drawDot(115,54,fogOn);
 
-    u8g2.setCursor(0,76);  u8g2.print(F("Heat        Vent"));
+    u8g2.setCursor(0,76);  u8g2.print(F("Heat    Vent"));
     drawDot(45,74,heatOn); drawDot(115,74,cycOn);
 
-    u8g2.setCursor(0,96);  u8g2.print(F("Cyc         PIR"));
+    u8g2.setCursor(0,96);  u8g2.print(F("Cyc     PIR"));
     drawDot(45,94,cycOn);  drawDot(115,94,motionDetected());
 
     char buf[10]; int mm=remainSec/60, ss=remainSec%60;
